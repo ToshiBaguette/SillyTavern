@@ -252,7 +252,8 @@ async function sendClaudeRequest(request, response) {
             max_tokens: request.body.max_tokens,
             stop_sequences: stopSequences,
             temperature: request.body.temperature,
-            top_p: request.body.top_p,
+            // top_p is not supported by Claude API; use top_k instead.
+            // top_p: request.body.top_p,
             top_k: request.body.top_k,
             stream: request.body.stream,
         };
