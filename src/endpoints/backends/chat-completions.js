@@ -237,7 +237,7 @@ async function sendClaudeRequest(request, response) {
         const useVerbosity = /^claude-(opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model);
         const noPrefillModel = /^claude-(opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model);
         const isAdaptiveModel = /^claude-(opus-4-7)/.test(request.body.model) || (enableAdaptiveThinking && /^claude-(opus-4-6|sonnet-4-6)/.test(request.body.model));
-        const noSamplingModel = /^claude-(opus-4-7)/.test(request.body.model);
+        const noSamplingModel = /^claude-(opus-4-7|sonnet-5)/.test(request.body.model);
         let fixThinkingPrefill = false;
         // Add custom stop sequences
         const stopSequences = [];
