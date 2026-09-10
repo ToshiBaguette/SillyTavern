@@ -322,6 +322,10 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.top_k;
         }
 
+        if (/^claude-opus-4-8/.test(request.body.model)) {
+            delete requestBody.top_k;
+        }
+
         const reasoningEffort = request.body.reasoning_effort;
         const budgetTokens = calculateClaudeBudgetTokens(requestBody.max_tokens, reasoningEffort, requestBody.stream, isAdaptiveModel);
 
