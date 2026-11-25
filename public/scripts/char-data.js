@@ -118,7 +118,7 @@
  * // Non-standard extensions added by the ST server (not part of the original data)
  * @property {string} chat - name of the current chat file chat
  * @property {string} avatar - file name of the avatar image (acts as a unique identifier)
- * @property {string} json_data - the full raw JSON data of the character
+ * @property {string} [json_data] - the full raw JSON data of the character. Not included in the character list: loaded on demand by unshallowCharacter()
  * @property {boolean?} shallow - if the data is shallow (lazy-loaded)
  */
 export default 0;// now this file is a module

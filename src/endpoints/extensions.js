@@ -530,5 +530,23 @@ router.get('/discover', function (request, response) {
     const allExtensions = [...builtInExtensions, ...userExtensions, ...globalExtensions];
     console.debug('Extensions available for', request.user.profile.handle, allExtensions);
 
-    return response.send(allExtensions);
+    // Include the manifests, so the client doesn't have to request each one of them separately.
+    // If a manifest can't be read here, the client falls back to fetching it.
+    const baseDirectories = {
+        system: PUBLIC_DIRECTORIES.extensions,
+        local: request.user.directories.extensions,
+        global: PUBLIC_DIRECTORIES.globalExtensions,
+    };
+    const result = allExtensions.map(extension => {
+        try {
+            const folder = extension.name.replace(/^third-party\//, '');
+            const manifestPath = path.join(baseDirectories[extension.type], folder, 'manifest.json');
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            return { ...extension, manifest };
+        } catch {
+            return extension;
+        }
+    });
+
+    return response.send(result);
 });

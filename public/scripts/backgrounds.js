@@ -10,6 +10,7 @@ import { callGenericPopup, Popup, POPUP_TYPE } from './popup.js';
 import { groups, selected_group } from './group-chats.js';
 import { humanizedDateTime } from './RossAscends-mods.js';
 import { deleteMediaFromServer } from './chats.js';
+import { fetchWithPrefetch } from './startup-prefetch.js';
 
 const BG_METADATA_KEY = 'custom_background';
 const LIST_METADATA_KEY = 'chat_backgrounds';
@@ -706,7 +707,7 @@ function renderChatBackgrounds(backgrounds) {
 }
 
 export async function getBackgrounds() {
-    const response = await fetch('/api/backgrounds/all', {
+    const response = await fetchWithPrefetch('/api/backgrounds/all', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),

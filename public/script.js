@@ -231,6 +231,7 @@ import {
     getInstructStoppingSequences,
 } from './scripts/instruct-mode.js';
 import { initLocales, t } from './scripts/i18n.js';
+import { clearPrefetchedRequests, fetchWithPrefetch, prefetchRequest, setStartupData } from './scripts/startup-prefetch.js';
 import { getFriendlyTokenizerName, getTokenCount, getTokenCountAsync, initTokenizers, saveTokenCache } from './scripts/tokenizers.js';
 import {
     user_avatar,
@@ -701,6 +702,8 @@ async function firstLoadInit() {
         throw new Error('Initialization failed');
     }
 
+    prefetchStartupRequests();
+
     const initLoaderOverlay = loader.createOverlay();
     initLoaderOverlay.classList.add('splash-screen');
 
@@ -732,10 +735,9 @@ async function firstLoadInit() {
     addDOMPurifyHooks();
     reloadMarkdownProcessor();
     applyBrowserFixes();
-    await getClientVersion();
     await initSecrets();
-    await readSecretState();
-    await initLocales();
+    // Independent requests: run them concurrently to save round-trips
+    await Promise.all([getClientVersion(), readSecretState(), initLocales()]);
     initChatUtilities();
     initDefaultSlashCommands();
     initTextGenModels();
@@ -784,10 +786,44 @@ async function firstLoadInit() {
     initSwipePicker();
     addDebugFunctions();
     doDailyExtensionUpdatesCheck();
+    clearPrefetchedRequests();
     await eventSource.emit(event_types.APP_INITIALIZED);
     await initLoaderHandle.hide();
     await fixViewport();
     await eventSource.emit(event_types.APP_READY);
+}
+
+/**
+ * Starts the independent data requests needed during initialization all at once,
+ * instead of waiting for each initialization step to request them one after another.
+ * Request options must match the ones used by the consumers (see fetchWithPrefetch).
+ */
+function prefetchStartupRequests() {
+    prefetchRequest('/api/settings/get', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({}),
+        cache: 'no-cache',
+    });
+    prefetchRequest('/api/extensions/discover');
+    prefetchRequest('/api/avatars/get', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+    });
+    prefetchRequest('/api/characters/all', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({}),
+    });
+    prefetchRequest('/api/groups/all', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+    });
+    prefetchRequest('/api/backgrounds/all', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({}),
+    });
 }
 
 async function fixViewport() {
@@ -1291,8 +1327,14 @@ export function getCharacterSource(chId = this_chid) {
     return '';
 }
 
+/**
+ * Top-level (Spec V1) character fields mirrored from the same-named fields of the Spec V2 'data' object.
+ * Keep in sync with the server (src/endpoints/characters.js).
+ */
+const SPEC_V1_MIRRORED_FIELDS = ['description', 'personality', 'scenario', 'first_mes', 'mes_example'];
+
 export async function getCharacters() {
-    const response = await fetch('/api/characters/all', {
+    const response = await fetchWithPrefetch('/api/characters/all', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
@@ -1304,6 +1346,14 @@ export async function getCharacters() {
         for (let i = 0; i < getData.length; i++) {
             characters[i] = getData[i];
             characters[i].name = DOMPurify.sanitize(characters[i].name);
+
+            // The server omits the top-level fields that are identical to their Spec V2 counterparts
+            // to reduce the payload size. Restore them from the 'data' object.
+            for (const field of SPEC_V1_MIRRORED_FIELDS) {
+                if (!Object.hasOwn(characters[i], field) && typeof characters[i].data?.[field] === 'string') {
+                    characters[i][field] = characters[i].data[field];
+                }
+            }
 
             // For dropped-in cards
             if (!characters[i].chat) {
@@ -7617,8 +7667,9 @@ export async function unshallowCharacter(characterId) {
         return;
     }
 
-    // Character is not shallow
-    if (!character.shallow) {
+    // Character is fully loaded. The character list is sent without the raw card JSON (json_data)
+    // to keep the initial payload small, so it is also fetched on demand.
+    if (!character.shallow && character.json_data !== undefined) {
         return;
     }
 
@@ -7911,7 +7962,7 @@ function reloadLoop() {
 //MARK: getSettings()
 ///////////////////////////////////////////
 export async function getSettings(initLoaderHandle = null) {
-    const response = await fetch('/api/settings/get', {
+    const response = await fetchWithPrefetch('/api/settings/get', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
@@ -8021,6 +8072,8 @@ export async function getSettings(initLoaderHandle = null) {
         if (data.enable_extensions) {
             const enableAutoUpdate = Boolean(data.enable_extensions_auto_update);
             const isVersionChanged = settings.currentVersion !== currentVersion;
+            // Let the Quick Reply extension reuse the presets instead of downloading all settings again
+            setStartupData('quickReplyPresets', data.quickReplyPresets);
             await loadExtensionSettings(settings, isVersionChanged, enableAutoUpdate);
             await eventSource.emit(event_types.EXTENSION_SETTINGS_LOADED);
         } else {

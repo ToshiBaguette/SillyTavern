@@ -52,6 +52,7 @@ import {
     escapeHtml,
 } from './utils.js';
 import { debounce_timeout } from './constants.js';
+import { fetchWithPrefetch } from './startup-prefetch.js';
 import { FILTER_TYPES, FilterHelper } from './filters.js';
 import { groups, selected_group } from './group-chats.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup } from './popup.js';
@@ -273,7 +274,7 @@ async function addMissingPersonas(avatarsList) {
  * @returns {Promise<string[]>} List of avatar file names
  */
 export async function getUserAvatars(doRender = true, openPageAt = '') {
-    const response = await fetch('/api/avatars/get', {
+    const response = await fetchWithPrefetch('/api/avatars/get', {
         method: 'POST',
         headers: getRequestHeaders({ omitContentType: true }),
     });

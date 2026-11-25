@@ -10,6 +10,7 @@ import { addLocaleData, getCurrentLocale, t } from './i18n.js';
 import { debounce_timeout } from './constants.js';
 import { accountStorage } from './util/AccountStorage.js';
 import { SimpleMutex } from './util/SimpleMutex.js';
+import { fetchWithPrefetch } from './startup-prefetch.js';
 
 export {
     getContext,
@@ -297,7 +298,7 @@ function getNameSelector(name, { prefix = 'third-party' } = {}) {
  */
 async function discoverExtensions() {
     try {
-        const response = await fetch('/api/extensions/discover');
+        const response = await fetchWithPrefetch('/api/extensions/discover');
 
         if (response.ok) {
             const extensions = await response.json();
@@ -532,13 +533,20 @@ export function getExtensionManifest(name) {
 /**
  * Loads manifest.json files for extensions.
  * @param {string[]} names Array of extension names
+ * @param {Record<string, object>} [knownManifests] Manifests that are already known (e.g. from discovery)
  * @returns {Promise<Record<string, object>>} Object with extension names as keys and their manifests as values
  */
-async function getManifests(names) {
+async function getManifests(names, knownManifests = {}) {
     const obj = {};
     const promises = [];
 
     for (const name of names) {
+        // Already provided by the discovery endpoint, no need for an extra request
+        if (knownManifests[name] && typeof knownManifests[name] === 'object') {
+            obj[name] = knownManifests[name];
+            continue;
+        }
+
         const promise = new Promise((resolve, reject) => {
             fetch(`/scripts/extensions/${name}/manifest.json`).then(async response => {
                 if (response.ok) {
@@ -571,6 +579,17 @@ async function activateExtensions() {
     const extensions = Object.entries(manifests).sort((a, b) => sortManifestsByOrder(a[1], b[1]));
     const extensionNames = extensions.map(x => x[0]);
     const promises = [];
+
+    // Extensions are activated one after another to preserve the loading order.
+    // To avoid paying a network round-trip per extension, start downloading all files in parallel beforehand.
+    const localePromises = new Map();
+    for (const [name, manifest] of extensions) {
+        if (activeExtensions.has(name) || extension_settings.disabledExtensions.includes(name)) {
+            continue;
+        }
+        localePromises.set(name, addExtensionLocale(name, manifest));
+        preloadExtensionFiles(name, manifest);
+    }
 
     for (let entry of extensions) {
         const name = entry[0];
@@ -628,7 +647,7 @@ async function activateExtensions() {
         if (meetsModuleRequirements && meetsExtensionDeps && meetsClientMinimumVersion && !isDisabled) {
             try {
                 console.debug('Activating extension', name);
-                const promise = addExtensionLocale(name, manifest).finally(() =>
+                const promise = (localePromises.get(name) ?? addExtensionLocale(name, manifest)).finally(() =>
                     Promise.all([addExtensionScript(name, manifest), addExtensionStyle(name, manifest)]),
                 );
                 await promise
@@ -802,6 +821,32 @@ function addExtensionStyle(name, manifest) {
             document.head.appendChild(link);
         }
     });
+}
+
+/**
+ * Hints the browser to start downloading the JS and CSS files of an extension
+ * without executing or applying them.
+ * @param {string} name Extension name
+ * @param {object} manifest Extension manifest
+ */
+function preloadExtensionFiles(name, manifest) {
+    const hints = [
+        { file: manifest.js, rel: 'modulepreload', as: null },
+        { file: manifest.css, rel: 'preload', as: 'style' },
+    ];
+
+    for (const { file, rel, as } of hints) {
+        if (!file || typeof file !== 'string') {
+            continue;
+        }
+        const link = document.createElement('link');
+        link.rel = rel;
+        if (as) {
+            link.as = as;
+        }
+        link.href = `/scripts/extensions/${name}/${file}`;
+        document.head.appendChild(link);
+    }
 }
 
 /**
@@ -1795,7 +1840,8 @@ export async function loadExtensionSettings(settings, versionChanged, enableAuto
     const extensions = await discoverExtensions();
     extensionNames = extensions.map(x => x.name);
     extensionTypes = Object.fromEntries(extensions.map(x => [x.name, x.type]));
-    manifests = await getManifests(extensionNames);
+    const discoveredManifests = Object.fromEntries(extensions.filter(x => x.manifest).map(x => [x.name, x.manifest]));
+    manifests = await getManifests(extensionNames, discoveredManifests);
 
     // An extension without a loadable manifest cannot be used: drop it so state queries
     // and the extensions list do not report a ghost entry (e.g. leftover folder on disk)
