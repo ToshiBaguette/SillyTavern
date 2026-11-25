@@ -15,6 +15,7 @@ import {
 } from '../../constants.js';
 import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 import { setAdditionalHeaders } from '../../additional-headers.js';
+import { getResponseGenerationJob, setupGenerationAbort } from '../../generation-jobs.js';
 import { createHash } from 'node:crypto';
 
 export const router = express.Router();
@@ -51,8 +52,16 @@ async function parseOllamaStream(jsonStream, request, response) {
             }
         });
 
-        request.socket.on('close', function () {
-            if (jsonStream.body instanceof Readable) jsonStream.body.destroy();
+        // A generation job outlives the client connection, the remote stream is only closed on explicit abort.
+        if (!getResponseGenerationJob(response)) {
+            request.socket.on('close', function () {
+                if (jsonStream.body instanceof Readable) jsonStream.body.destroy();
+                response.end();
+            });
+        }
+
+        jsonStream.body.on('error', (error) => {
+            console.warn('Ollama streaming request failed:', error?.message ?? error);
             response.end();
         });
 
@@ -282,8 +291,7 @@ router.post('/generate', async function (request, response) {
         console.debug(request.body);
 
         const controller = new AbortController();
-        request.socket.removeAllListeners('close');
-        request.socket.on('close', async function () {
+        setupGenerationAbort(request, response, async function () {
             if (request.body.api_type === TEXTGEN_TYPES.KOBOLDCPP && !response.writableEnded) {
                 await abortKoboldCppRequest(request, trimV1(baseUrl));
             }

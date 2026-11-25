@@ -1452,5 +1452,7 @@
     "Deleting chat…": "Đang xóa cuộc trò chuyện…",
     "Loading chat…": "Đang tải cuộc trò chuyện…",
     "Bulk Delete": "Xóa hàng loạt",
-    "Deleting ${0} character(s)…": "Đang xóa ${0} nhân vật…"
+    "Deleting ${0} character(s)…": "Đang xóa ${0} nhân vật…",
+    "Connection lost during the generation. Reconnecting...": "Mất kết nối trong khi tạo. Đang kết nối lại...",
+    "Reconnected to the generation.": "Đã kết nối lại với quá trình tạo."
 }

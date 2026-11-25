@@ -1452,5 +1452,7 @@
     "Deleting chat…": "A eliminar chat…",
     "Loading chat…": "A carregar chat…",
     "Bulk Delete": "Eliminação em massa",
-    "Deleting ${0} character(s)…": "A eliminar ${0} personagem(ns)…"
+    "Deleting ${0} character(s)…": "A eliminar ${0} personagem(ns)…",
+    "Connection lost during the generation. Reconnecting...": "Ligação perdida durante a geração. A restabelecer a ligação...",
+    "Reconnected to the generation.": "Ligação à geração restabelecida."
 }

@@ -266,6 +266,19 @@ performance:
     # Timeout for request compression in milliseconds.
     timeout: 4000
 
+# -- GENERATION JOBS CONFIGURATION --
+# Generation jobs keep streamed LLM generations running on the server when the client connection drops,
+# and let the client reconnect to the stream without losing the response.
+generationJobs:
+  # Enable generation jobs. If disabled, generations are aborted when the client disconnects.
+  enabled: true
+  # How long a finished generation stays available for reconnection, in seconds.
+  retentionSeconds: 300
+  # Maximum size of the buffered response of a single generation. Larger generations are aborted.
+  maxJobSize: '16mb'
+  # Maximum number of generations kept in memory per user.
+  maxJobsPerUser: 20
+
 # CACHE BUSTER CONFIGURATION
 # IMPORTANT: Requires localhost or a domain with HTTPS, otherwise will not work!
 cacheBuster:

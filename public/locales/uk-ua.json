@@ -1452,5 +1452,7 @@
     "Deleting chat…": "Видалення чату…",
     "Loading chat…": "Завантаження чату…",
     "Bulk Delete": "Масове видалення",
-    "Deleting ${0} character(s)…": "Видалення ${0} персонажа(ів)…"
+    "Deleting ${0} character(s)…": "Видалення ${0} персонажа(ів)…",
+    "Connection lost during the generation. Reconnecting...": "З'єднання втрачено під час генерації. Повторне підключення...",
+    "Reconnected to the generation.": "Повторно підключено до генерації."
 }
