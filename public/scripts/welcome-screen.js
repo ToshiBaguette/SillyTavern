@@ -281,7 +281,7 @@ function sendAssistantMessage() {
     const currentAssistantAvatar = getPermanentAssistantAvatar();
     const character = characters.find(x => x.avatar === currentAssistantAvatar);
     const name = character ? character.name : neutralCharacterName;
-    const avatar = character ? getThumbnailUrl('avatar', character.avatar) : system_avatar;
+    const avatar = character ? getThumbnailUrl('avatar', character.avatar, false, { versioned: false }) : system_avatar;
     const greeting = getAssistantGreeting(character);
 
     const message = {

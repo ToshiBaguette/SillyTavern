@@ -30,6 +30,7 @@ import {
     getOneCharacter,
     getRequestHeaders,
     getThumbnailUrl,
+    refreshThumbnailImages,
     is_send_press,
     main_api,
     name1,
@@ -5166,22 +5167,8 @@ async function uploadCharacterAvatar(avatarKey, base64Data, { resizePrompt = fal
             throw new Error(errorText); // Will be caught and logged below
         }
 
-        // Bust cache for the avatar thumbnail and character image
-        const thumbnailUrl = getThumbnailUrl('avatar', avatarKey);
-        await fetch(thumbnailUrl, { method: 'GET', cache: 'reload' });
-        await fetch(`/characters/${avatarKey}`, { method: 'GET', cache: 'reload' });
-
-        // Refresh all visible avatar images that use this thumbnail URL
-        // This handles messages, character list, and any other place using the thumbnail
-        const avatarImages = document.querySelectorAll(`img[src^="${thumbnailUrl}"]`);
-        for (const img of avatarImages) {
-            if (img instanceof HTMLImageElement) {
-                const originalSrc = img.src;
-                img.src = '';
-                img.src = originalSrc;
-            }
-        }
-        console.debug(`Refreshed ${avatarImages.length} avatar images for ${avatarKey}`);
+        // Show the new avatar everywhere (thumbnails and character image)
+        await refreshThumbnailImages('avatar', avatarKey, `/characters/${avatarKey}`);
 
         return true;
     } catch (error) {
@@ -5797,7 +5784,7 @@ export function getNameAndAvatarForMessage(character, name = null) {
     if (character?.avatar === currentChar?.avatar || isNeutralCharacter) {
         // If the targeted character is the currently selected one in a solo chat, we don't need to force any avatars
     } else if (character && character.avatar !== 'none') {
-        force_avatar = getThumbnailUrl('avatar', character.avatar);
+        force_avatar = getThumbnailUrl('avatar', character.avatar, false, { versioned: false });
         original_avatar = character.avatar;
     } else {
         force_avatar = default_avatar;
@@ -5892,7 +5879,7 @@ async function messageNameCallback(args, name) {
         const persona = findPersona({ name: name });
         if (persona) {
             message.name = newName = persona.name;
-            message.force_avatar = getThumbnailUrl('persona', persona.avatar);
+            message.force_avatar = getThumbnailUrl('persona', persona.avatar, false, { versioned: false });
             message.original_avatar = persona.avatar;
         } else {
             message.name = newName = name;

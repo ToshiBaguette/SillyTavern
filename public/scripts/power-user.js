@@ -2909,7 +2909,9 @@ async function setAvgBG(args) {
         bgUrl = $('#bg1')
             .css('background-image')
             .replace(/^url\(['"]?/, '')
-            .replace(/['"]?\)$/, '');
+            .replace(/['"]?\)$/, '')
+            // Drop the image version added for caching (see image-versions.js)
+            .replace(/\?v=[^&]*$/, '');
     }
 
     if (!bgUrl || bgUrl === 'none') {

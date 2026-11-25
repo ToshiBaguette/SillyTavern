@@ -21,16 +21,19 @@ const startupData = new Map();
  * @param {string} url Request URL. Used as the key to retrieve the response.
  * @param {RequestInit} [init] Fetch options
  * @param {(url: string, init: RequestInit) => Promise<Response>} [fetcher] Function used to fetch
+ * @returns {Promise<Response>} Pending response. Only peek at it with response.clone(), in a handler
+ * attached right away (before the consumer reads the body).
  */
 export function prefetchRequest(url, init = {}, fetcher = fetch) {
     if (prefetchedRequests.has(url)) {
-        return;
+        return prefetchedRequests.get(url);
     }
 
     const promise = fetcher(url, init);
     // Prevent unhandled rejection warnings; the error is surfaced to the consumer.
     promise.catch(() => { });
     prefetchedRequests.set(url, promise);
+    return promise;
 }
 
 /**

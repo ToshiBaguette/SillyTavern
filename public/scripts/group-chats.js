@@ -604,7 +604,7 @@ async function getFirstCharacterMessage(character) {
         : '';
     mes.force_avatar =
         character.avatar != 'none'
-            ? getThumbnailUrl('avatar', character.avatar)
+            ? getThumbnailUrl('avatar', character.avatar, false, { versioned: false })
             : default_avatar;
     return mes;
 }
