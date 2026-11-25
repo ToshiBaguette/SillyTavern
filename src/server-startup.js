@@ -42,6 +42,7 @@ import { router as searchRouter } from './endpoints/search.js';
 import { router as openRouterRouter } from './endpoints/openrouter.js';
 import { router as nanogptRouter } from './endpoints/nanogpt.js';
 import { router as chatCompletionsRouter } from './endpoints/backends/chat-completions.js';
+import { router as generationJobsRouter } from './generation-jobs.js';
 import { router as koboldRouter } from './endpoints/backends/kobold.js';
 import { router as textCompletionsRouter } from './endpoints/backends/text-completions.js';
 import { router as speechRouter } from './endpoints/speech.js';
@@ -178,6 +179,7 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/nanogpt', nanogptRouter);
     app.use('/api/backends/kobold', koboldRouter);
     app.use('/api/backends/chat-completions', chatCompletionsRouter);
+    app.use('/api/backends/generation-jobs', generationJobsRouter);
     app.use('/api/speech', speechRouter);
     app.use('/api/azure', azureRouter);
     app.use('/api/volcengine', volcengineRouter);

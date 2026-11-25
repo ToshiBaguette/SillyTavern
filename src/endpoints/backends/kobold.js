@@ -5,6 +5,7 @@ import fetch from 'node-fetch';
 import { forwardFetchResponse, delay } from '../../util.js';
 import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
 import { TEXTGEN_TYPES } from '../../constants.js';
+import { setupGenerationAbort } from '../../generation-jobs.js';
 
 export const router = express.Router();
 
@@ -17,8 +18,7 @@ router.post('/generate', async function (request, response_generate) {
 
     const request_prompt = request.body.prompt;
     const controller = new AbortController();
-    request.socket.removeAllListeners('close');
-    request.socket.on('close', async function () {
+    setupGenerationAbort(request, response_generate, async function () {
         if (request.body.can_abort && !response_generate.writableEnded) {
             try {
                 console.info('Aborting Kobold generation...');
