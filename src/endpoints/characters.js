@@ -1138,6 +1138,16 @@ router.post('/edit', validateAvatarUrlMiddleware, async function (request, respo
         return;
     }
 
+    // The editor form sends the full card in 'json_data' to keep the fields it doesn't display. Without it,
+    // the character was not fully loaded by the client (e.g. a page loaded before a server update, as the
+    // character list doesn't include it anymore): saving would erase the card. Refuse instead.
+    const existingCardPath = path.join(request.user.directories.characters, request.body.avatar_url);
+    const sentCard = tryParse(request.body.json_data);
+    if (fs.existsSync(existingCardPath) && (!sentCard || typeof sentCard !== 'object')) {
+        console.warn(`Refused to edit ${request.body.avatar_url}: the client sent no card data (json_data). The page may be outdated.`);
+        return response.status(409).send('Character data is not fully loaded. Reload the page and try again.');
+    }
+
     let char = charaFormatData(request.body, request.user.directories);
     char.chat = request.body.chat;
     char.create_date = request.body.create_date;
