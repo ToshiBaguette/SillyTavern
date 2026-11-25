@@ -760,6 +760,21 @@ export async function forwardFetchResponse(from, to) {
         return;
     }
 
+    // Generation job: the response records everything written to it and outlives the client connection.
+    // Don't stop reading the remote stream when the client disconnects, the job aborts it explicitly if needed.
+    if (from.body && to.locals?.generationJob) {
+        from.body.on('data', (chunk) => to.write(chunk));
+        from.body.once('end', function () {
+            console.info('Streaming request finished');
+            to.end();
+        });
+        from.body.once('error', function (error) {
+            console.warn('Streaming request failed:', error?.message ?? error);
+            to.end();
+        });
+        return;
+    }
+
     if (from.body && to.socket) {
         from.body.pipe(to);
 

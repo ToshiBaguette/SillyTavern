@@ -47,6 +47,7 @@ import { forceCharacterEditorTokenize, getCustomStoppingStrings, persona_descrip
 import { SECRET_KEYS, secret_state, writeSecret } from './secrets.js';
 
 import { getEventSourceStream } from './sse-stream.js';
+import { fetchGenerationStream } from './generation-jobs.js';
 import {
     clamp,
     createThumbnail,
@@ -3148,7 +3149,8 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
     await eventSource.emit(event_types.CHAT_COMPLETION_SETTINGS_READY, generate_data);
 
     const generate_url = '/api/backends/chat-completions/generate';
-    const response = await fetch(generate_url, {
+    // Streaming generations survive connection drops by reattaching to the server-side generation job
+    const response = await (stream ? fetchGenerationStream : fetch)(generate_url, {
         method: 'POST',
         body: JSON.stringify(generate_data),
         headers: getRequestHeaders(),

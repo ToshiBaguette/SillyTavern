@@ -1471,5 +1471,7 @@
     "Deleting chat…": "กำลังลบแชท…",
     "Loading chat…": "กำลังโหลดแชท…",
     "Bulk Delete": "ลบจำนวนมาก",
-    "Deleting ${0} character(s)…": "กำลังลบ ${0} ตัวละคร…"
+    "Deleting ${0} character(s)…": "กำลังลบ ${0} ตัวละคร…",
+    "Connection lost during the generation. Reconnecting...": "การเชื่อมต่อขาดหายระหว่างการสร้าง กำลังเชื่อมต่อใหม่...",
+    "Reconnected to the generation.": "เชื่อมต่อกับการสร้างอีกครั้งแล้ว"
 }
