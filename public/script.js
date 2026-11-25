@@ -8874,6 +8874,21 @@ export function select_rm_info(type, charId, previousCharId = null) {
  * @param {boolean} [param1.switchMenu=true] Whether to switch the menu
  */
 export function select_selected_character(chid, { switchMenu = true } = {}) {
+    // The character list doesn't include the full card (json_data). Never fill the editor with
+    // a partially loaded character: saving it would erase the fields it doesn't have.
+    const character = characters[chid];
+    if (character && (character.shallow || character.json_data === undefined)) {
+        unshallowCharacter(chid).then(() => {
+            const loaded = characters[chid];
+            if (loaded && !loaded.shallow && loaded.json_data !== undefined) {
+                select_selected_character(chid, { switchMenu });
+            } else {
+                toastr.error(t`Could not load the character data. Reload the page and try again.`, t`Error`, { preventDuplicates: true });
+            }
+        });
+        return;
+    }
+
     //character select
     //console.log('select_selected_character() -- starting with input of -- ' + chid + ' (name:' + characters[chid].name + ')');
     select_rm_create({ switchMenu });
@@ -10000,6 +10015,12 @@ export async function createOrEditCharacter(e) {
                 body: formData,
                 cache: 'no-cache',
             });
+
+            if (fetchResult.status === 409) {
+                // The server refused to save a character that was not fully loaded (it would have erased its data)
+                toastr.error(t`The character data is not fully loaded, so it was not saved. Reload the page and try again.`, t`Character not saved`, { preventDuplicates: true });
+                return;
+            }
 
             if (!fetchResult.ok) {
                 throw new Error('Fetch result is not ok');
