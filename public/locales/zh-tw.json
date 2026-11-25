@@ -2774,5 +2774,7 @@
     "Deleting chat…": "正在刪除聊天…",
     "Loading chat…": "正在載入聊天…",
     "Bulk Delete": "批次刪除",
-    "Deleting ${0} character(s)…": "正在刪除 ${0} 個角色…"
+    "Deleting ${0} character(s)…": "正在刪除 ${0} 個角色…",
+    "Connection lost during the generation. Reconnecting...": "生成過程中連線中斷，正在重新連線...",
+    "Reconnected to the generation.": "已重新連線到生成。"
 }
