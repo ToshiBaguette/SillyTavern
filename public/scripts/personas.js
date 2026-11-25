@@ -11,6 +11,7 @@ import {
     getCurrentChatId,
     getRequestHeaders,
     getThumbnailUrl,
+    refreshThumbnailImages,
     groupToEntity,
     menu_type,
     name1,
@@ -52,6 +53,8 @@ import {
     escapeHtml,
 } from './utils.js';
 import { debounce_timeout } from './constants.js';
+import { fetchWithPrefetch } from './startup-prefetch.js';
+import { setImageVersions } from './util/image-versions.js';
 import { FILTER_TYPES, FilterHelper } from './filters.js';
 import { groups, selected_group } from './group-chats.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup } from './popup.js';
@@ -273,16 +276,20 @@ async function addMissingPersonas(avatarsList) {
  * @returns {Promise<string[]>} List of avatar file names
  */
 export async function getUserAvatars(doRender = true, openPageAt = '') {
-    const response = await fetch('/api/avatars/get', {
+    const response = await fetchWithPrefetch('/api/avatars/get?versions=true', {
         method: 'POST',
         headers: getRequestHeaders({ omitContentType: true }),
     });
     if (response.ok) {
-        const allEntities = await response.json();
+        const data = await response.json();
+        const allEntities = data?.images;
 
         if (!Array.isArray(allEntities)) {
             return [];
         }
+
+        // Versions allow the browser to cache the persona thumbnails (see image-versions.js)
+        setImageVersions('persona', Object.entries(data.versions ?? {}));
 
         if (!doRender) {
             return allEntities;
@@ -436,8 +443,7 @@ async function changeUserAvatar(e) {
 
         // If the user uploaded a new avatar, we want to make sure it's not cached
         if (overwriteName && dataPath) {
-            await fetch(getUserAvatar(String(dataPath)), { cache: 'reload' });
-            await fetch(getThumbnailUrl('persona', String(dataPath)), { cache: 'reload' });
+            await refreshThumbnailImages('persona', String(dataPath), getUserAvatar(String(dataPath)));
             reloadUserAvatar(true);
         }
 
@@ -1861,7 +1867,7 @@ async function syncUserNameToPersona({ start = 0, end = chat.length - 1, quiet =
         const mes = chat[i];
         if (mes?.is_user && (!hasNameFilter || equalsIgnoreCaseAndAccents(mes.name, nameFilter))) {
             mes.name = name1;
-            mes.force_avatar = getThumbnailUrl('persona', user_avatar);
+            mes.force_avatar = getThumbnailUrl('persona', user_avatar, false, { versioned: false });
         }
     }
 
@@ -2049,8 +2055,7 @@ async function uploadPersonaAvatar(avatarId, base64Data, { resizePrompt = false 
         }
 
         // Cache bust for the updated avatar
-        await fetch(getUserAvatar(avatarId), { cache: 'reload' });
-        await fetch(getThumbnailUrl('persona', avatarId), { cache: 'reload' });
+        await refreshThumbnailImages('persona', avatarId, getUserAvatar(avatarId));
         reloadUserAvatar(true);
         return true;
     } catch (error) {

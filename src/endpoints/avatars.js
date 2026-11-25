@@ -6,7 +6,7 @@ import sanitize from 'sanitize-filename';
 import { Jimp } from '../jimp.js';
 import { sync as writeFileAtomicSync } from 'write-file-atomic';
 
-import { getImages, tryParse } from '../util.js';
+import { getFileVersion, getImages, tryParse } from '../util.js';
 import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
 import { applyAvatarCropResize } from './characters.js';
 import { invalidateThumbnail } from './thumbnails.js';
@@ -16,6 +16,21 @@ export const router = express.Router();
 
 router.post('/get', function (request, response) {
     const images = getImages(request.user.directories.avatars);
+
+    // Opt-in: also return a version for each image, so the client can use cacheable image URLs
+    if (request.query.versions === 'true') {
+        /** @type {Record<string, string>} */
+        const versions = {};
+        for (const image of images) {
+            try {
+                versions[image] = getFileVersion(fs.statSync(path.join(request.user.directories.avatars, image)));
+            } catch {
+                // File removed in the meantime
+            }
+        }
+        return response.send({ images, versions });
+    }
+
     response.send(images);
 });
 

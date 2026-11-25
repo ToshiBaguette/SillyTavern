@@ -187,16 +187,24 @@ export class SettingsUi {
             qrs.save();
         });
         let initialColorChange = true;
+        let isRestoringColor = false;
         this.color = this.dom.querySelector('#qr--color');
         // @ts-ignore
         this.color.color = this.currentQrSet?.color ?? 'transparent';
         this.color.addEventListener('change', (evt) => {
             if (!this.dom.closest('body')) return;
+            // Restoring the initial color below fires a nested change event: it's not a user change, don't save
+            if (isRestoringColor) return;
             const qrs = this.currentQrSet;
             if (initialColorChange) {
                 initialColorChange = false;
-                // @ts-ignore
-                this.color.color = qrs.color;
+                isRestoringColor = true;
+                try {
+                    // @ts-ignore
+                    this.color.color = qrs.color;
+                } finally {
+                    isRestoringColor = false;
+                }
                 return;
             }
             // @ts-ignore

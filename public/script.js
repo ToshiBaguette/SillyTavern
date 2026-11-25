@@ -231,6 +231,9 @@ import {
     getInstructStoppingSequences,
 } from './scripts/instruct-mode.js';
 import { initLocales, t } from './scripts/i18n.js';
+import { clearPrefetchedRequests, fetchWithPrefetch, prefetchRequest, setStartupData } from './scripts/startup-prefetch.js';
+import { fetchWithResponseCache } from './scripts/response-cache.js';
+import { bumpImageVersion, getCharacterImageVersion, getImageVersion, markImageVersionsLoaded, setImageVersion, setImageVersions } from './scripts/util/image-versions.js';
 import { getFriendlyTokenizerName, getTokenCount, getTokenCountAsync, initTokenizers, saveTokenCache } from './scripts/tokenizers.js';
 import {
     user_avatar,
@@ -243,7 +246,7 @@ import {
     updatePersonaConnectionsAvatarList,
     isPersonaPanelOpen,
 } from './scripts/personas.js';
-import { getBackgrounds, initBackgrounds, loadBackgroundSettings, background_settings } from './scripts/backgrounds.js';
+import { getBackgrounds, initBackgrounds, loadBackgroundSettings, background_settings, setBackgroundVersionsFromList } from './scripts/backgrounds.js';
 import { loader } from './scripts/action-loader.js';
 import { BulkEditOverlay } from './scripts/BulkEditOverlay.js';
 import { initTextGenModels } from './scripts/textgen-models.js';
@@ -701,6 +704,8 @@ async function firstLoadInit() {
         throw new Error('Initialization failed');
     }
 
+    prefetchStartupRequests();
+
     const initLoaderOverlay = loader.createOverlay();
     initLoaderOverlay.classList.add('splash-screen');
 
@@ -732,10 +737,9 @@ async function firstLoadInit() {
     addDOMPurifyHooks();
     reloadMarkdownProcessor();
     applyBrowserFixes();
-    await getClientVersion();
     await initSecrets();
-    await readSecretState();
-    await initLocales();
+    // Independent requests: run them concurrently to save round-trips
+    await Promise.all([getClientVersion(), readSecretState(), initLocales()]);
     initChatUtilities();
     initDefaultSlashCommands();
     initTextGenModels();
@@ -784,10 +788,50 @@ async function firstLoadInit() {
     initSwipePicker();
     addDebugFunctions();
     doDailyExtensionUpdatesCheck();
+    clearPrefetchedRequests();
     await eventSource.emit(event_types.APP_INITIALIZED);
     await initLoaderHandle.hide();
     await fixViewport();
     await eventSource.emit(event_types.APP_READY);
+}
+
+/**
+ * Starts the independent data requests needed during initialization all at once,
+ * instead of waiting for each initialization step to request them one after another.
+ * Request options must match the ones used by the consumers (see fetchWithPrefetch).
+ */
+function prefetchStartupRequests() {
+    prefetchRequest('/api/settings/get', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({}),
+        cache: 'no-cache',
+    }, fetchWithResponseCache);
+    prefetchRequest('/api/extensions/discover');
+    prefetchRequest('/api/avatars/get?versions=true', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+    });
+    prefetchRequest('/api/characters/all', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({}),
+    }, fetchWithResponseCache);
+    prefetchRequest('/api/groups/all', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+    });
+    const backgrounds = prefetchRequest('/api/backgrounds/all', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({}),
+    });
+    // The chat background is applied with the settings, before the backgrounds list is processed:
+    // get the image versions as soon as the list arrives, so it's loaded with a cacheable URL.
+    backgrounds
+        .then(response => response.ok ? response.clone().json() : null)
+        .then(data => setBackgroundVersionsFromList(data?.images))
+        .catch(() => markImageVersionsLoaded('bg'));
 }
 
 async function fixViewport() {
@@ -1235,6 +1279,7 @@ export async function getOneCharacter(avatarUrl) {
         getData.chat = String(getData.chat);
 
         const indexOf = characters.findIndex(x => x.avatar === avatarUrl);
+        setImageVersion('avatar', avatarUrl, getCharacterImageVersion(getData.date_added));
 
         if (indexOf !== -1) {
             characters[indexOf] = getData;
@@ -1291,12 +1336,18 @@ export function getCharacterSource(chId = this_chid) {
     return '';
 }
 
+/**
+ * Top-level (Spec V1) character fields mirrored from the same-named fields of the Spec V2 'data' object.
+ * Keep in sync with the server (src/endpoints/characters.js).
+ */
+const SPEC_V1_MIRRORED_FIELDS = ['description', 'personality', 'scenario', 'first_mes', 'mes_example'];
+
 export async function getCharacters() {
-    const response = await fetch('/api/characters/all', {
+    const response = await fetchWithPrefetch('/api/characters/all', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
-    });
+    }, fetchWithResponseCache);
     if (response.ok) {
         const previousAvatar = this_chid !== undefined ? characters[this_chid]?.avatar : null;
         characters.splice(0, characters.length);
@@ -1305,6 +1356,14 @@ export async function getCharacters() {
             characters[i] = getData[i];
             characters[i].name = DOMPurify.sanitize(characters[i].name);
 
+            // The server omits the top-level fields that are identical to their Spec V2 counterparts
+            // to reduce the payload size. Restore them from the 'data' object.
+            for (const field of SPEC_V1_MIRRORED_FIELDS) {
+                if (!Object.hasOwn(characters[i], field) && typeof characters[i].data?.[field] === 'string') {
+                    characters[i][field] = characters[i].data[field];
+                }
+            }
+
             // For dropped-in cards
             if (!characters[i].chat) {
                 characters[i].chat = `${characters[i].name} - ${humanizedDateTime()}`;
@@ -1312,6 +1371,8 @@ export async function getCharacters() {
 
             characters[i].chat = String(characters[i].chat);
         }
+
+        setImageVersions('avatar', characters.map(c => [c.avatar, getCharacterImageVersion(c.date_added)]));
 
         if (previousAvatar) {
             const newCharacterId = characters.findIndex(x => x.avatar === previousAvatar);
@@ -2621,7 +2682,7 @@ export function updateMessageElement(mes, { messageId = chat.length - 1, message
     //for non-user messages
     if (!mes.is_user) {
         if (mes.force_avatar) {
-            avatarImg = mes.force_avatar;
+            avatarImg = getVersionedThumbnailUrl(mes.force_avatar);
         } else if (this_chid === undefined) {
             avatarImg = system_avatar;
         } else if (characters[this_chid] && characters[this_chid].avatar !== 'none') {
@@ -2635,7 +2696,7 @@ export function updateMessageElement(mes, { messageId = chat.length - 1, message
         //characterName = mes.is_system || mes.force_avatar ? mes.name : name2;
     } else if (mes.is_user && mes.force_avatar) {
         // Special case for persona images.
-        avatarImg = mes.force_avatar;
+        avatarImg = getVersionedThumbnailUrl(mes.force_avatar);
     }
     const momentDate = timestampToMoment(mes.send_date);
     const timestamp = momentDate.isValid() ? momentDate.format('LL LT') : '';
@@ -5891,7 +5952,7 @@ export async function sendMessageAsUser(messageText, messageBias, insertAt = nul
 
     // Lock user avatar to a persona.
     if (avatar in power_user.personas) {
-        message.force_avatar = getThumbnailUrl('persona', avatar);
+        message.force_avatar = getThumbnailUrl('persona', avatar, false, { versioned: false });
     }
 
     if (messageBias) {
@@ -6768,7 +6829,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title
             console.debug('entering chat update for groups');
             let avatarImg = 'img/ai4.png';
             if (characters[this_chid].avatar != 'none') {
-                avatarImg = getThumbnailUrl('avatar', characters[this_chid].avatar);
+                avatarImg = getThumbnailUrl('avatar', characters[this_chid].avatar, false, { versioned: false });
             }
             newMessage.force_avatar = avatarImg;
             newMessage.original_avatar = characters[this_chid].avatar;
@@ -7517,22 +7578,8 @@ async function read_avatar_load(input) {
         const formData = new FormData(/** @type {HTMLFormElement} */($('#form_create').get(0)));
         const avatarKey = formData.get('avatar_url').toString();
 
-        // Bust cache for the avatar thumbnail and character image
-        const thumbnailUrl = getThumbnailUrl('avatar', avatarKey);
-        await fetch(thumbnailUrl, { method: 'GET', cache: 'reload' });
-        await fetch(`/characters/${avatarKey}`, { method: 'GET', cache: 'reload' });
-
-        // Refresh all visible avatar images that use this thumbnail URL
-        // This handles messages, character list, and any other place using the thumbnail
-        const avatarImages = document.querySelectorAll(`img[src^="${thumbnailUrl}"]`);
-        for (const img of avatarImages) {
-            if (img instanceof HTMLImageElement) {
-                const originalSrc = img.src;
-                img.src = '';
-                img.src = originalSrc;
-            }
-        }
-        console.debug(`Refreshed ${avatarImages.length} avatar images for ${avatarKey}`);
+        // Show the new avatar everywhere (thumbnails and character image)
+        await refreshThumbnailImages('avatar', avatarKey, `/characters/${avatarKey}`);
 
         console.log('Avatar refreshed');
     }
@@ -7540,13 +7587,77 @@ async function read_avatar_load(input) {
 
 /**
  * Gets the URL for a thumbnail of a specific type and file.
+ * If the version of the image is known, the URL includes it, which lets the browser cache it
+ * without revalidation (the URL changes when the image changes).
  * @param {import('../src/endpoints/thumbnails.js').ThumbnailType} type The type of the thumbnail to get
  * @param {string} file The file name or path for which to get the thumbnail URL
- * @param {boolean} [t=false] Whether to add a cache-busting timestamp to the URL
+ * @param {boolean} [t=false] Whether to add a cache-busting timestamp to the URL (ignored for versioned URLs)
+ * @param {object} [options] Options
+ * @param {boolean} [options.versioned=true] Whether to include the image version. Use false for URLs that are
+ * persisted (e.g. in chat files): a stored version would become outdated. Use getVersionedThumbnailUrl when displaying them.
  * @returns {string} The URL for the thumbnail
  */
-export function getThumbnailUrl(type, file, t = false) {
-    return `/thumbnail?type=${type}&file=${encodeURIComponent(file)}${t ? `&t=${Date.now()}` : ''}`;
+export function getThumbnailUrl(type, file, t = false, { versioned = true } = {}) {
+    const baseUrl = `/thumbnail?type=${type}&file=${encodeURIComponent(file)}`;
+    const version = versioned ? getImageVersion(type, file) : undefined;
+    if (version) {
+        return `${baseUrl}&v=${encodeURIComponent(version)}`;
+    }
+    return `${baseUrl}${t ? `&t=${Date.now()}` : ''}`;
+}
+
+/**
+ * Updates a thumbnail URL (e.g. one stored in a chat message) to the current version of the image.
+ * Other URLs are returned unchanged.
+ * @param {string} url Image URL
+ * @returns {string} Versioned thumbnail URL
+ */
+export function getVersionedThumbnailUrl(url) {
+    if (typeof url !== 'string' || !url.startsWith('/thumbnail?')) {
+        return url;
+    }
+    const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    const type = params.get('type');
+    const file = params.get('file');
+    if (!file || !['avatar', 'persona', 'bg'].includes(type) || params.has('animated')) {
+        return url;
+    }
+    return getThumbnailUrl(/** @type {any} */(type), file);
+}
+
+/**
+ * Shows the new version of an image that was just changed (e.g. a new avatar was uploaded),
+ * everywhere it is displayed with a thumbnail URL.
+ * @param {import('../src/endpoints/thumbnails.js').ThumbnailType} type The type of the thumbnail
+ * @param {string} file The file name
+ * @param {string} [originalUrl] URL of the original image to refresh in the browser cache
+ * @returns {Promise<void>}
+ */
+export async function refreshThumbnailImages(type, file, originalUrl) {
+    const baseUrl = getThumbnailUrl(type, file, false, { versioned: false });
+    bumpImageVersion(type, file);
+    const newUrl = getThumbnailUrl(type, file);
+
+    // Unversioned URLs (e.g. used by extensions) rely on the browser cache being refreshed
+    await fetch(baseUrl, { method: 'GET', cache: 'reload' }).catch(() => { });
+    if (originalUrl) {
+        await fetch(originalUrl, { method: 'GET', cache: 'reload' }).catch(() => { });
+    }
+
+    // Refresh all visible images using this thumbnail (messages, character list...)
+    const images = document.querySelectorAll(`img[src^="${baseUrl}"]`);
+    for (const img of images) {
+        if (!(img instanceof HTMLImageElement)) {
+            continue;
+        }
+        const src = img.getAttribute('src');
+        // Only the exact file: the next character must be the end of the URL or another parameter
+        if (src !== baseUrl && !src.startsWith(`${baseUrl}&`)) {
+            continue;
+        }
+        img.src = src.includes('&animated=') ? src : newUrl;
+    }
+    console.debug(`Refreshed ${images.length} thumbnail images for ${file}`);
 }
 
 export function buildAvatarList(block, entities, { templateId = 'inline_avatar_template', empty = true, interactable = false, highlightFavs = true } = {}) {
@@ -7617,8 +7728,9 @@ export async function unshallowCharacter(characterId) {
         return;
     }
 
-    // Character is not shallow
-    if (!character.shallow) {
+    // Character is fully loaded. The character list is sent without the raw card JSON (json_data)
+    // to keep the initial payload small, so it is also fetched on demand.
+    if (!character.shallow && character.json_data !== undefined) {
         return;
     }
 
@@ -7911,12 +8023,12 @@ function reloadLoop() {
 //MARK: getSettings()
 ///////////////////////////////////////////
 export async function getSettings(initLoaderHandle = null) {
-    const response = await fetch('/api/settings/get', {
+    const response = await fetchWithPrefetch('/api/settings/get', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
         cache: 'no-cache',
-    });
+    }, fetchWithResponseCache);
 
     if (!response.ok) {
         reloadLoop();
@@ -8021,6 +8133,8 @@ export async function getSettings(initLoaderHandle = null) {
         if (data.enable_extensions) {
             const enableAutoUpdate = Boolean(data.enable_extensions_auto_update);
             const isVersionChanged = settings.currentVersion !== currentVersion;
+            // Let the Quick Reply extension reuse the presets instead of downloading all settings again
+            setStartupData('quickReplyPresets', data.quickReplyPresets);
             await loadExtensionSettings(settings, isVersionChanged, enableAutoUpdate);
             await eventSource.emit(event_types.EXTENSION_SETTINGS_LOADED);
         } else {
@@ -10571,7 +10685,7 @@ async function importCharacter(file, { preserveFileName = '', importTags = false
 
             // Refresh existing thumbnail
             if (exists && this_chid !== undefined) {
-                await fetch(getThumbnailUrl('avatar', avatarFileName), { cache: 'reload' });
+                await refreshThumbnailImages('avatar', avatarFileName);
             }
 
             $('#character_search_bar').val('').trigger('input');

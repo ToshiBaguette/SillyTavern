@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import ipaddr from 'ipaddr.js';
 import ipMatching from 'ip-matching';
 import { RateLimiterRes } from 'rate-limiter-flexible';
@@ -124,4 +125,28 @@ export function retryAfter(response, rateLimit) {
     const retryAfter = Math.ceil(rateLimit.msBeforeNext / 1000);
     response.set('Retry-After', retryAfter.toString());
     return response;
+}
+
+/**
+ * Sends a JSON response with a strong ETag computed from its content. If the client already has this
+ * exact content (its If-None-Match header matches), replies with 304 Not Modified and no body.
+ * Browsers only do this automatically for GET requests: for POST endpoints, the client keeps
+ * the previous response itself (see public/scripts/response-cache.js).
+ * @param {import('express').Request} request Express request object
+ * @param {import('express').Response} response Express response object
+ * @param {any} data Data to send as JSON
+ */
+export function sendJsonWithETag(request, response, data) {
+    const body = JSON.stringify(data);
+    const etag = `"${crypto.createHash('sha1').update(body).digest('base64url')}"`;
+    response.setHeader('ETag', etag);
+    response.setHeader('Cache-Control', 'no-cache');
+
+    const ifNoneMatch = String(request.headers['if-none-match'] ?? '');
+    if (ifNoneMatch && ifNoneMatch.split(',').map(x => x.trim()).includes(etag)) {
+        return response.status(304).end();
+    }
+
+    response.type('json');
+    return response.send(body);
 }

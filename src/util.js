@@ -1585,6 +1585,32 @@ export function readFirstLine(filePath) {
 }
 
 /**
+ * Gets a version string for a file, derived from its modification time.
+ * Clients append it to image URLs (?v=...): the URL changes when the file changes,
+ * so the browser can cache the image without asking the server again.
+ * @param {fs.Stats} stat File stats
+ * @returns {string} Version string
+ */
+export function getFileVersion(stat) {
+    return Math.floor(stat.mtimeMs).toString(36);
+}
+
+/**
+ * Lets the browser cache the response for a long time without revalidating it,
+ * if the request URL is versioned (has a 'v' query parameter, see getFileVersion).
+ * @param {import('express').Request} request Request object
+ * @param {import('express').Response} response Response object
+ * @returns {boolean} Whether the request was versioned
+ */
+export function setImmutableCacheIfVersioned(request, response) {
+    if (typeof request.query?.v !== 'string' || !request.query.v) {
+        return false;
+    }
+    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return true;
+}
+
+/**
  * If the file is an image, and the request's user agent matches Firefox, then the response's headers are set to invalidate the cache.
  * Without this, Firefox ignores updated images even after a refresh.
  * https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
@@ -1593,6 +1619,10 @@ export function readFirstLine(filePath) {
  * @param {import('express').Response} response Response object
  */
 export function invalidateFirefoxCache(file, request, response) {
+    // A versioned URL never changes content: it can be cached by every browser (see setImmutableCacheIfVersioned)
+    if (setImmutableCacheIfVersioned(request, response)) {
+        return;
+    }
     const mimeType = isFirefox(request) && mime.lookup(file);
     if (mimeType && mimeType.startsWith('image/')) {
         response.setHeader('Cache-Control', 'must-understand, no-store');

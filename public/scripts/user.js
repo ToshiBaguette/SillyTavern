@@ -3,6 +3,7 @@ import { POPUP_RESULT, POPUP_TYPE, callGenericPopup } from './popup.js';
 import { canViewSecrets } from './secrets.js';
 import { renderTemplateAsync } from './templates.js';
 import { ensureImageFormatSupported, getBase64Async, humanFileSize } from './utils.js';
+import { clearResponseCache } from './response-cache.js';
 
 /**
  * @type {import('../../src/users.js').UserViewModel} Logged in user
@@ -859,6 +860,8 @@ async function openAdminPanel() {
  * @returns {Promise<void>}
  */
 async function logout() {
+    // Don't keep the user's data in this browser after logging out
+    await clearResponseCache();
     await fetch('/api/users/logout', {
         method: 'POST',
         headers: getRequestHeaders({ omitContentType: true }),

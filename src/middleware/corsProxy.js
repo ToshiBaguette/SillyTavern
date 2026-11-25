@@ -26,6 +26,15 @@ export default async function corsProxyMiddleware(req, res) {
 
         headersToRemove.forEach(header => delete headers[header]);
 
+        // Never forward HTTP/2 pseudo-headers (':method', ':path'...) nor the headers that only describe
+        // the incoming connection: they are invalid for the outgoing request (and the body is re-serialized).
+        const connectionHeaders = ['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'te', 'content-length'];
+        for (const header of Object.keys(headers)) {
+            if (header.startsWith(':') || connectionHeaders.includes(header)) {
+                delete headers[header];
+            }
+        }
+
         // Force a set of encodings that node-fetch/undici can transparently decompress.
         // Some origins (e.g. Cloudflare-fronted sites) will respond with zstd when a browser's
         // full Accept-Encoding list is forwarded as-is; undici does not decode zstd, so the raw

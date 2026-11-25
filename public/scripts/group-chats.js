@@ -87,6 +87,7 @@ import { POPUP_TYPE, Popup, callGenericPopup } from './popup.js';
 import { t } from './i18n.js';
 import { accountStorage } from './util/AccountStorage.js';
 import { compressRequest } from './request-compression.js';
+import { fetchWithPrefetch } from './startup-prefetch.js';
 
 export {
     selected_group,
@@ -603,7 +604,7 @@ async function getFirstCharacterMessage(character) {
         : '';
     mes.force_avatar =
         character.avatar != 'none'
-            ? getThumbnailUrl('avatar', character.avatar)
+            ? getThumbnailUrl('avatar', character.avatar, false, { versioned: false })
             : default_avatar;
     return mes;
 }
@@ -756,7 +757,7 @@ export async function renameGroupMember(oldAvatar, newAvatar, newName) {
  * Fetches all groups from the server and processes them.
  */
 async function getGroups() {
-    const response = await fetch('/api/groups/all', {
+    const response = await fetchWithPrefetch('/api/groups/all', {
         method: 'POST',
         headers: getRequestHeaders({ omitContentType: true }),
     });

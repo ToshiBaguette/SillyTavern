@@ -3,13 +3,15 @@ import { characters, chat_metadata, eventSource, event_types, generateQuietPromp
 import { openThirdPartyExtensionMenu, saveMetadataDebounced } from './extensions.js';
 import { SlashCommand } from './slash-commands/SlashCommand.js';
 import { SlashCommandParser } from './slash-commands/SlashCommandParser.js';
-import { createThumbnail, flashHighlight, getBase64Async, stringFormat, debounce, setupScrollToTop, saveBase64AsFile, getFileExtension, sortIgnoreCaseAndAccents } from './utils.js';
+import { createThumbnail, flashHighlight, getBase64Async, stringFormat, debounce, setupScrollToTop, saveBase64AsFile, getFileExtension, sortIgnoreCaseAndAccents, delay } from './utils.js';
 import { debounce_timeout } from './constants.js';
 import { t } from './i18n.js';
 import { callGenericPopup, Popup, POPUP_TYPE } from './popup.js';
 import { groups, selected_group } from './group-chats.js';
 import { humanizedDateTime } from './RossAscends-mods.js';
 import { deleteMediaFromServer } from './chats.js';
+import { fetchWithPrefetch } from './startup-prefetch.js';
+import { areImageVersionsLoaded, getImageVersion, markImageVersionsLoaded, setImageVersions, waitForImageVersions } from './util/image-versions.js';
 
 const BG_METADATA_KEY = 'custom_background';
 const LIST_METADATA_KEY = 'chat_backgrounds';
@@ -248,7 +250,7 @@ export function loadBackgroundSettings(settings) {
  */
 async function forceSetBackground(backgroundInfo) {
     saveBackgroundMetadata(backgroundInfo.url);
-    $('#bg1').css('background-image', backgroundInfo.url);
+    setChatBackgroundImage(backgroundInfo.url);
 
     const list = chat_metadata[LIST_METADATA_KEY] || [];
     const bg = backgroundInfo.path;
@@ -263,7 +265,7 @@ async function forceSetBackground(backgroundInfo) {
 async function onChatChanged() {
     const lockedUrl = chat_metadata[BG_METADATA_KEY];
 
-    $('#bg1').css('background-image', lockedUrl || background_settings.url);
+    setChatBackgroundImage(lockedUrl || background_settings.url);
 
     renderChatBackgrounds();
     highlightLockedBackground();
@@ -325,7 +327,7 @@ function onLockBackgroundClick(event = null) {
     // Take the global background's URL and save it to the chat's metadata.
     const urlToLock = event ? $(event.target).closest('.bg_example').data('url') : background_settings.url;
     saveBackgroundMetadata(urlToLock);
-    $('#bg1').css('background-image', urlToLock);
+    setChatBackgroundImage(urlToLock);
 
     // Update UI states to reflect the new lock.
     highlightLockedBackground();
@@ -341,7 +343,7 @@ function onUnlockBackgroundClick(_event = null) {
     removeBackgroundMetadata();
 
     // Revert the view to the current global background.
-    $('#bg1').css('background-image', background_settings.url);
+    setChatBackgroundImage(background_settings.url);
 
     // Update UI states to reflect the removal of the lock.
     highlightLockedBackground();
@@ -380,7 +382,7 @@ function onSelectBackgroundClick(e) {
     if ((isChatBackgroundLocked() || isCustom) && !bypassGlobalLock) {
         // If a background is locked, update the locked background directly
         saveBackgroundMetadata(backgroundCssUrl);
-        $('#bg1').css('background-image', backgroundCssUrl);
+        setChatBackgroundImage(backgroundCssUrl);
     } else {
         // Otherwise, update the global background setting
         setBackground(bgFile, backgroundCssUrl);
@@ -706,13 +708,14 @@ function renderChatBackgrounds(backgrounds) {
 }
 
 export async function getBackgrounds() {
-    const response = await fetch('/api/backgrounds/all', {
+    const response = await fetchWithPrefetch('/api/backgrounds/all', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
     });
     if (response.ok) {
         const { images, config } = await response.json();
+        setBackgroundVersionsFromList(images);
         Object.assign(THUMBNAIL_CONFIG, config);
         cachedSystemBackgrounds = images;
         const existingFiles = new Set(images.map(x => x.filename));
@@ -730,7 +733,67 @@ export async function getBackgrounds() {
         // Render only filtered images if inside a folder, otherwise all
         renderSystemBackgrounds(getFilteredImages());
         highlightSelectedBackground();
+    } else {
+        markImageVersionsLoaded('bg');
     }
+}
+
+/**
+ * Stores the versions of the background images, received with the backgrounds list.
+ * @param {{filename: string, version?: string}[]} images Background images
+ */
+export function setBackgroundVersionsFromList(images) {
+    if (!Array.isArray(images)) {
+        markImageVersionsLoaded('bg');
+        return;
+    }
+    setImageVersions('bg', images.map(x => [x.filename, x.version]));
+}
+
+/**
+ * Adds the image version to a CSS url() of a system background, so the browser can cache it.
+ * Custom backgrounds (other URLs) are returned unchanged.
+ * @param {string} cssUrl CSS value, e.g. url("backgrounds/file.jpg")
+ * @returns {string} CSS value with a versioned URL
+ */
+function getVersionedBackgroundCssUrl(cssUrl) {
+    const match = typeof cssUrl === 'string' ? cssUrl.match(/^url\((['"]?)backgrounds\/([^'"?)]+)\1\)$/) : null;
+    if (!match) {
+        return cssUrl;
+    }
+    let file;
+    try {
+        file = decodeURIComponent(match[2]);
+    } catch {
+        return cssUrl;
+    }
+    const version = getImageVersion('bg', file);
+    return version ? `url("backgrounds/${match[2]}?v=${encodeURIComponent(version)}")` : cssUrl;
+}
+
+/** Incremented on every change of the chat background, to drop outdated deferred updates. */
+let chatBackgroundToken = 0;
+
+/**
+ * Shows an image as the chat background.
+ * For system backgrounds, waits for the image versions (sent with the backgrounds list, requested early
+ * during startup): otherwise the image would be downloaded twice, unversioned then versioned.
+ * @param {string} cssUrl CSS value, e.g. url("backgrounds/file.jpg")
+ */
+function setChatBackgroundImage(cssUrl) {
+    const token = ++chatBackgroundToken;
+    const apply = () => {
+        if (token === chatBackgroundToken) {
+            $('#bg1').css('background-image', getVersionedBackgroundCssUrl(cssUrl));
+        }
+    };
+
+    if (areImageVersionsLoaded('bg') || getVersionedBackgroundCssUrl(cssUrl) !== cssUrl || !/^url\((['"]?)backgrounds\//.test(String(cssUrl))) {
+        return apply();
+    }
+
+    // Don't wait forever if the list can't be loaded
+    Promise.race([waitForImageVersions('bg'), delay(10000)]).then(apply);
 }
 
 /**
@@ -1439,7 +1502,7 @@ async function resolveImageUrl(bg, isCustom, isAnimated = null) {
 async function setBackground(bg, url) {
     // Only change the visual background if one is not locked for the current chat.
     if (!isChatBackgroundLocked()) {
-        $('#bg1').css('background-image', url);
+        setChatBackgroundImage(url);
     }
     background_settings.name = bg;
     background_settings.url = url;

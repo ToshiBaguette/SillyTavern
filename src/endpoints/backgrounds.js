@@ -6,7 +6,7 @@ import sanitize from 'sanitize-filename';
 
 import { invalidateThumbnail } from './thumbnails.js';
 import { thumbnailDimensions, readMetadataIndex, renameMetadata, removeMetadata, getOrGenerateMetadataBatch } from './image-metadata.js';
-import { getImages } from '../util.js';
+import { getFileVersion, getImages } from '../util.js';
 import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
 
 export const router = express.Router();
@@ -24,9 +24,16 @@ router.post('/all', async function (request, response) {
         const imagesWithMetadata = images.map(img => {
             const relativePath = path.join('backgrounds', img);
             const metadata = metadataMap[relativePath];
+            let version;
+            try {
+                version = getFileVersion(fs.statSync(path.join(request.user.directories.backgrounds, img)));
+            } catch {
+                // File removed in the meantime
+            }
             return {
                 filename: img,
                 isAnimated: metadata?.isAnimated ?? false,
+                version,
             };
         });
 

@@ -25,6 +25,7 @@ import { getChatInfo } from './chats.js';
 import { ByafParser } from '../byaf.js';
 import { CharXParser, persistCharXAssets } from '../charx.js';
 import cacheBuster from '../middleware/cacheBuster.js';
+import { sendJsonWithETag } from '../express-common.js';
 
 // With 100 MB limit it would take roughly 3000 characters to reach this limit
 const memoryCacheCapacity = getConfigValue('performance.memoryCacheCapacity', '100mb');
@@ -337,21 +338,22 @@ async function tryReadImage(imgPath, crop) {
  * calculateChatSize - Calculates the total chat size for a given character.
  *
  * @param  {string} charDir The directory where the chats are stored.
- * @return { {chatSize: number, dateLastChat: number} }         The total chat size.
+ * @return {Promise<{chatSize: number, dateLastChat: number}>} The total chat size.
  */
-const calculateChatSize = (charDir) => {
+const calculateChatSize = async (charDir) => {
     let chatSize = 0;
     let dateLastChat = 0;
 
-    if (fs.existsSync(charDir)) {
-        const chats = fs.readdirSync(charDir);
-        if (Array.isArray(chats) && chats.length) {
-            for (const chat of chats) {
-                const chatStat = fs.statSync(path.join(charDir, chat));
-                chatSize += chatStat.size;
-                dateLastChat = Math.max(dateLastChat, chatStat.mtimeMs);
-            }
+    try {
+        const chats = await fs.promises.readdir(charDir);
+        const stats = await Promise.all(chats.map(chat => fs.promises.stat(path.join(charDir, chat)).catch(() => null)));
+        for (const chatStat of stats) {
+            if (!chatStat) continue;
+            chatSize += chatStat.size;
+            dateLastChat = Math.max(dateLastChat, chatStat.mtimeMs);
         }
+    } catch {
+        // The chats directory does not exist (no chats yet)
     }
 
     return { chatSize, dateLastChat };
@@ -395,30 +397,55 @@ const toShallow = (character) => {
 };
 
 /**
+ * Top-level (Spec V1) fields that are mirrored from the same-named fields of the Spec V2 'data' object.
+ * Keep in sync with the client (getCharacters in public/script.js).
+ */
+const SPEC_V1_MIRRORED_FIELDS = ['description', 'personality', 'scenario', 'first_mes', 'mes_example'];
+
+/**
+ * Removes the top-level fields that are exact copies of the Spec V2 data fields to reduce the size
+ * of the character list. The client restores them from the 'data' object (lossless).
+ * @param {object} character Character object
+ */
+const dedupeSpecV1Fields = (character) => {
+    for (const field of SPEC_V1_MIRRORED_FIELDS) {
+        const value = character[field];
+        if (typeof value === 'string' && value === character.data?.[field]) {
+            delete character[field];
+        }
+    }
+};
+
+/**
  * processCharacter - Process a given character, read its data and calculate its statistics.
  *
  * @param  {string} item The name of the character.
  * @param  {import('../users.js').UserDirectoryList} directories User directories
  * @param  {object} options Options for the character processing
  * @param  {boolean} options.shallow If true, only return the core character's metadata
+ * @param  {boolean} [options.includeJsonData=true] If true, include the raw card JSON string (json_data)
  * @return {Promise<object>}     A Promise that resolves when the character processing is done.
  */
-const processCharacter = async (item, directories, { shallow }) => {
+const processCharacter = async (item, directories, { shallow, includeJsonData = true }) => {
     try {
         const imgFile = path.join(directories.characters, item);
-        const imgData = await readCharacterData(imgFile);
+        const chatsDirectory = path.join(directories.chats, item.replace('.png', ''));
+        const [imgData, charStat, { chatSize, dateLastChat }] = await Promise.all([
+            readCharacterData(imgFile),
+            fs.promises.stat(imgFile),
+            calculateChatSize(chatsDirectory),
+        ]);
         if (imgData === undefined) throw new Error('Failed to read character file');
 
         let jsonObject = getCharaCardV2(JSON.parse(imgData), directories, false);
         jsonObject.avatar = item;
         const character = jsonObject;
-        character.json_data = imgData;
-        const charStat = fs.statSync(path.join(directories.characters, item));
+        if (includeJsonData) {
+            character.json_data = imgData;
+        }
         character.date_added = charStat.ctimeMs;
         character.create_date = jsonObject.create_date || new Date(Math.round(charStat.ctimeMs)).toISOString();
-        const chatsDirectory = path.join(directories.chats, item.replace('.png', ''));
 
-        const { chatSize, dateLastChat } = calculateChatSize(chatsDirectory);
         character.chat_size = chatSize;
         character.date_last_chat = dateLastChat;
         character.data_size = calculateDataSize(jsonObject?.data);
@@ -1465,11 +1492,16 @@ router.post('/delete', validateAvatarUrlMiddleware, async function (request, res
  */
 router.post('/all', async function (request, response) {
     try {
-        const files = fs.readdirSync(request.user.directories.characters);
+        const files = await fs.promises.readdir(request.user.directories.characters);
         const pngFiles = files.filter(file => file.endsWith('.png'));
-        const processingPromises = pngFiles.map(file => processCharacter(file, request.user.directories, { shallow: useShallowCharacters }));
+        // The raw card JSON (json_data) duplicates the whole card as an escaped string, roughly doubling
+        // the payload. It's only needed to edit a character, so the client fetches it on demand via /get.
+        const processingPromises = pngFiles.map(file => processCharacter(file, request.user.directories, { shallow: useShallowCharacters, includeJsonData: false }));
         const data = (await Promise.all(processingPromises)).filter(c => c.name);
-        return response.send(data);
+        if (!useShallowCharacters) {
+            data.forEach(dedupeSpecV1Fields);
+        }
+        return sendJsonWithETag(request, response, data);
     } catch (err) {
         console.error(err);
         const isRangeError = err instanceof RangeError;

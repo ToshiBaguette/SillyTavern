@@ -10,6 +10,7 @@ import { SETTINGS_FILE } from '../constants.js';
 import { getConfigValue, generateTimestamp, removeOldBackups } from '../util.js';
 import { getAllUserHandles, getUserDirectories } from '../users.js';
 import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
+import { sendJsonWithETag } from '../express-common.js';
 
 const ENABLE_EXTENSIONS = !!getConfigValue('extensions.enabled', true, 'boolean');
 const ENABLE_EXTENSIONS_AUTO_UPDATE = !!getConfigValue('extensions.autoUpdate', true, 'boolean');
@@ -265,7 +266,7 @@ router.post('/get', (request, response) => {
     const sysprompt = readAndParseFromDirectory(request.user.directories.sysprompt);
     const reasoning = readAndParseFromDirectory(request.user.directories.reasoning);
 
-    response.send({
+    sendJsonWithETag(request, response, {
         settings,
         koboldai_settings,
         koboldai_setting_names,

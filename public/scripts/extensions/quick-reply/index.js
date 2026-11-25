@@ -1,5 +1,6 @@
 import { chat, chat_metadata, eventSource, event_types, getRequestHeaders, this_chid, characters } from '../../../script.js';
 import { extension_settings } from '../../extensions.js';
+import { takeStartupData } from '../../startup-prefetch.js';
 import { QuickReplyApi } from './api/QuickReplyApi.js';
 import { AutoExecuteHandler } from './src/AutoExecuteHandler.js';
 import { QuickReply } from './src/QuickReply.js';
@@ -52,15 +53,34 @@ let autoExec;
 export let quickReplyApi;
 
 
-const loadSets = async () => {
+/**
+ * Gets the list of Quick Reply presets, reusing the data received during initialization if available.
+ * @returns {Promise<object[]|null>} List of presets, or null if they could not be loaded
+ */
+const getQuickReplyPresets = async () => {
+    const startupPresets = takeStartupData('quickReplyPresets');
+    if (Array.isArray(startupPresets)) {
+        return startupPresets;
+    }
+
     const response = await fetch('/api/settings/get', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
     });
 
-    if (response.ok) {
-        const setList = (await response.json()).quickReplyPresets ?? [];
+    if (!response.ok) {
+        return null;
+    }
+
+    return (await response.json()).quickReplyPresets ?? [];
+};
+
+const loadSets = async () => {
+    const presets = await getQuickReplyPresets();
+
+    if (presets) {
+        const setList = presets;
         for (const set of setList) {
             if (set.version !== 2) {
                 // migrate old QR set

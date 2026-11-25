@@ -55,6 +55,10 @@ ssl:
   # Private key passphrase (leave empty if not needed)
   # For better security, use a CLI argument or an environment variable (SILLYTAVERN_SSL_KEYPASSPHRASE)
   keyPassphrase: ""
+  # Serve over HTTP/2 when SSL is enabled (browsers only use HTTP/2 over TLS).
+  # Loads many files in parallel over a single connection: much faster on high-latency connections.
+  # HTTP/1.1 clients are still supported.
+  http2: true
 # -- SECURITY CONFIGURATION --
 # Toggle whitelist mode
 whitelistMode: true

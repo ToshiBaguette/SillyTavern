@@ -417,7 +417,7 @@ export async function convertSoloToGroupChat() {
         // Set force fields for solo character
         message.name = character.name;
         message.original_avatar = character.avatar;
-        message.force_avatar = getThumbnailUrl('avatar', character.avatar);
+        message.force_avatar = getThumbnailUrl('avatar', character.avatar, false, { versioned: false });
         // Allow regens of a single message in group
         message.extra.gen_id = genIdFirst + index;
     }
