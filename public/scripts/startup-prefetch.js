@@ -20,13 +20,14 @@ const startupData = new Map();
  * Starts a request and keeps the pending response for a later consumption.
  * @param {string} url Request URL. Used as the key to retrieve the response.
  * @param {RequestInit} [init] Fetch options
+ * @param {(url: string, init: RequestInit) => Promise<Response>} [fetcher] Function used to fetch
  */
-export function prefetchRequest(url, init = {}) {
+export function prefetchRequest(url, init = {}, fetcher = fetch) {
     if (prefetchedRequests.has(url)) {
         return;
     }
 
-    const promise = fetch(url, init);
+    const promise = fetcher(url, init);
     // Prevent unhandled rejection warnings; the error is surfaced to the consumer.
     promise.catch(() => { });
     prefetchedRequests.set(url, promise);
@@ -36,15 +37,16 @@ export function prefetchRequest(url, init = {}) {
  * Fetches a resource, using a prefetched response if one is available.
  * @param {string} url Request URL
  * @param {RequestInit} [init] Fetch options used if there's no prefetched response
+ * @param {(url: string, init: RequestInit) => Promise<Response>} [fetcher] Function used to fetch if there's no prefetched response
  * @returns {Promise<Response>} Response
  */
-export function fetchWithPrefetch(url, init = {}) {
+export function fetchWithPrefetch(url, init = {}, fetcher = fetch) {
     const prefetched = prefetchedRequests.get(url);
     if (prefetched) {
         prefetchedRequests.delete(url);
         return prefetched;
     }
-    return fetch(url, init);
+    return fetcher(url, init);
 }
 
 /**

@@ -25,6 +25,7 @@ import { getChatInfo } from './chats.js';
 import { ByafParser } from '../byaf.js';
 import { CharXParser, persistCharXAssets } from '../charx.js';
 import cacheBuster from '../middleware/cacheBuster.js';
+import { sendJsonWithETag } from '../express-common.js';
 
 // With 100 MB limit it would take roughly 3000 characters to reach this limit
 const memoryCacheCapacity = getConfigValue('performance.memoryCacheCapacity', '100mb');
@@ -1500,7 +1501,7 @@ router.post('/all', async function (request, response) {
         if (!useShallowCharacters) {
             data.forEach(dedupeSpecV1Fields);
         }
-        return response.send(data);
+        return sendJsonWithETag(request, response, data);
     } catch (err) {
         console.error(err);
         const isRangeError = err instanceof RangeError;

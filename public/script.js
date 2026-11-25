@@ -232,6 +232,7 @@ import {
 } from './scripts/instruct-mode.js';
 import { initLocales, t } from './scripts/i18n.js';
 import { clearPrefetchedRequests, fetchWithPrefetch, prefetchRequest, setStartupData } from './scripts/startup-prefetch.js';
+import { fetchWithResponseCache } from './scripts/response-cache.js';
 import { getFriendlyTokenizerName, getTokenCount, getTokenCountAsync, initTokenizers, saveTokenCache } from './scripts/tokenizers.js';
 import {
     user_avatar,
@@ -804,7 +805,7 @@ function prefetchStartupRequests() {
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
         cache: 'no-cache',
-    });
+    }, fetchWithResponseCache);
     prefetchRequest('/api/extensions/discover');
     prefetchRequest('/api/avatars/get', {
         method: 'POST',
@@ -814,7 +815,7 @@ function prefetchStartupRequests() {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
-    });
+    }, fetchWithResponseCache);
     prefetchRequest('/api/groups/all', {
         method: 'POST',
         headers: getRequestHeaders({ omitContentType: true }),
@@ -1338,7 +1339,7 @@ export async function getCharacters() {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
-    });
+    }, fetchWithResponseCache);
     if (response.ok) {
         const previousAvatar = this_chid !== undefined ? characters[this_chid]?.avatar : null;
         characters.splice(0, characters.length);
@@ -7967,7 +7968,7 @@ export async function getSettings(initLoaderHandle = null) {
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
         cache: 'no-cache',
-    });
+    }, fetchWithResponseCache);
 
     if (!response.ok) {
         reloadLoop();

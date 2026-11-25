@@ -29,6 +29,7 @@ import { initConfig } from './config-init.js';
  * @property {string} certPath Path to certificate
  * @property {string} keyPath Path to private key
  * @property {string} keyPassphrase SSL private key passphrase
+ * @property {boolean} http2 If enable HTTP/2 (requires SSL)
  * @property {boolean} whitelistMode If enable whitelist mode
  * @property {boolean} basicAuthMode If enable basic authentication
  * @property {boolean} enableKeepAlive Enable HTTP/HTTPS keep-alive globally
@@ -75,6 +76,7 @@ export class CommandLineParser {
             certPath: 'certs/cert.pem',
             keyPath: 'certs/privkey.pem',
             keyPassphrase: '',
+            http2: true,
             whitelistMode: true,
             basicAuthMode: false,
             enableKeepAlive: false,
@@ -199,6 +201,11 @@ export class CommandLineParser {
                 default: null,
                 describe: 'Path to SSL private key file',
             })
+            .option('http2', {
+                type: 'boolean',
+                default: null,
+                describe: 'Enables HTTP/2 when SSL is enabled',
+            })
             .option('keyPassphrase', {
                 type: 'string',
                 default: null,
@@ -318,6 +325,7 @@ export class CommandLineParser {
             certPath: cliArguments.certPath ?? getConfigValue('ssl.certPath', defaultConfig.certPath),
             keyPath: cliArguments.keyPath ?? getConfigValue('ssl.keyPath', defaultConfig.keyPath),
             keyPassphrase: cliArguments.keyPassphrase ?? getConfigValue('ssl.keyPassphrase', defaultConfig.keyPassphrase),
+            http2: cliArguments.http2 ?? getConfigValue('ssl.http2', defaultConfig.http2, 'boolean'),
             whitelistMode: cliArguments.whitelist ?? getConfigValue('whitelistMode', defaultConfig.whitelistMode, 'boolean'),
             basicAuthMode: cliArguments.basicAuthMode ?? getConfigValue('basicAuthMode', defaultConfig.basicAuthMode, 'boolean'),
             enableKeepAlive: cliArguments.enableKeepAlive ?? getConfigValue('enableKeepAlive', defaultConfig.enableKeepAlive, 'boolean'),

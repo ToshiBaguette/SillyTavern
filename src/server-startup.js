@@ -1,7 +1,9 @@
 import https from 'node:https';
 import http from 'node:http';
+import http2 from 'node:http2';
 import fs from 'node:fs';
 import { color, urlHostnameToIPv6, getHasIP } from './util.js';
+import { createHttp2Handler } from './http2-compat.js';
 
 // Express routers
 import { router as userDataRouter } from './users.js';
@@ -280,7 +282,9 @@ export class ServerStartup {
                 key: fs.readFileSync(this.cliArgs.keyPath),
                 passphrase: String(this.cliArgs.keyPassphrase ?? ''),
             };
-            const server = https.createServer(sslOptions, this.app);
+            const server = this.cliArgs.http2
+                ? http2.createSecureServer({ ...sslOptions, allowHTTP1: true }, createHttp2Handler(this.app))
+                : https.createServer(sslOptions, this.app);
             server.on('error', reject);
             server.on('listening', resolve);
 
