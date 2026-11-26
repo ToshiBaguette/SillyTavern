@@ -12363,7 +12363,10 @@ jQuery(async function () {
         const messageElement = $(this).closest('.mes');
         const thumbURL = $(this).children('img').attr('src');
         const charsPath = '/characters/';
-        const targetAvatarImg = thumbURL.substring(thumbURL.lastIndexOf('=') + 1);
+        // File name of the avatar, URL-encoded. Read it from the 'file' parameter: thumbnail URLs
+        // may have other parameters after it (e.g. the image version '&v=').
+        const thumbFile = thumbURL.startsWith('/thumbnail?') ? new URLSearchParams(thumbURL.slice(thumbURL.indexOf('?') + 1)).get('file') : null;
+        const targetAvatarImg = thumbFile !== null ? encodeURIComponent(thumbFile) : thumbURL.substring(thumbURL.lastIndexOf('=') + 1);
         const charname = targetAvatarImg.replace('.png', '');
         const isValidCharacter = characters.some(x => x.avatar === decodeURIComponent(targetAvatarImg));
 
